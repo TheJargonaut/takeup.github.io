@@ -1,1 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poetry Recitation Master</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Poetry Recitation Master</h1>
+    <p>Refine your rhythm and conquer every verse.</p>
+  </header>
+  <div id="app">
+    <section class="poem-source">
+      <h2>Choose your poem:</h2>
+      <div class="source-options">
+        <button id="open-api-picker">Browse poems online (Poetry Foundation API)</button>
+        <button id="open-file-picker">Upload your own poem</button>
+        <textarea id="poem-text" placeholder="Paste poem text"></textarea>
+      </div>
+    </section>
+    <section class="recording-panel">
+      <div class="controls">
+        <button id="start-recording">Start recitation</button>
+        <button id="stop-recording" disabled>Stop recitation</button>
+        <div class="recording-mode">
+          <label for="practice-mode">Practice mode (no prompts)</label>
+          <input type="checkbox" id="practice-mode">
+        </div>
+        <div class="audio-options">
+          <label for="mute-audio">Mute audio prompts</label>
+          <input type="checkbox" id="mute-audio">
+        </div>
+      </div>
+      <div id="poem-container">
+        <p id="poem"></p>
+        <div id="highlight-overlay"></div>
+      </div>
+    </section>
+    <section class="analysis-section">
+      <h2>Recitation Performance:</h2>
+      <div id="completion-message"></div>
+      <div class="metrics">
+        <span id="accuracy-percentage"></span>
+        <span id="mispronounced-words"></span>
+        <span id="missed-stanzas"></span>
+      </div>
+      <div id="detailed-feedback">
+        <p id="pronunciation-tips"></p>
+        <p id="rhythm-suggestions"></p>
+      </div>
+      <button id="replay-recording">Replay your recitation</button>
+    </section>
+  </div>
+  <script>
+    // Dependencies
+const SoundsLikeAPI = window.SoundsLikeAPI; // Replace with actual API implementation
+const PoetryFoundationAPI = new window.PoetryFoundationAPI(); // Poetry Foundation API
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+// State variables
+let poemText = "";
+let isRecording = false;
+let highlightedWordIndex = 0;
+let lastSpeakslice = "";
+let recording;
+
+// Initialize SoundsLikeAPI instance
+const soundsLikeApi = new SoundsLikeAPI();
+
+// Function to open poem picker modal (implement based on chosen API or solution)
+function openPoemPicker() {
+  PoetryFoundationAPI.getRandomPoem().then(poem => {
+    poemText = poem.lines.join("\n");
+    document.getElementById("poem").textContent = poemText;
+  });
+  // ... or implement logic to open your chosen poem picker modal
+}
+
+// Start recording on button click
+const startRecordingButton = document.getElementById("start-recording");
+startRecordingButton.addEventListener("click", startRecording);
+
+// Stop recording on button click
+const stopRecordingButton = document.getElementById("stop-recording");
+stopRecordingButton.addEventListener("click", stopRecording);
+
+// Listen for speech recognition results
+window.addEventListener("speechrecognition.result", handleSpeechRecognitionResult);
+
+// Function to handle speech recognition results
+function handleSpeechRecognitionResult(event) {
+  const { results, speakslice } = event.detail;
+  let recognizedText = results[0].transcript.toLowerCase();
+
+  // Check for special commands
+  if (recognizedText === "prompt me") {
+    promptNextWords();
+    return;
+  } else if (recognizedText === "stop") {
+    stopRecording();
+    return;
+  }
+// Check for practice mode
+if (document.getElementById("practice-mode").checked) {
+  highlightWord(highlightedWordIndex, "speaking");
+  highlightedWordIndex++;
+  return;
+}
+
+// Check if user missed a stanza
+if (speakslice !== lastSpeakslice && highlightedWordIndex >= poemText.split(" ").length) {
+  showMissedStanzaAlert();
+  return;
+}
+
+// Update last speakslice
+lastSpeakslice = speakslice;
+
+// Check word against poem text
+const words = poemText.split(" ");
+const currentWord = words[highlightedWordIndex];
+
+// Check for exact match or "sounds like" match
+if (recognizedText === currentWord || soundsLikeApi.isSimilar(recognizedText, currentWord)) {
+  highlightWord(highlightedWordIndex, "correct");
+  highlightedWordIndex++;
+} else {
+  highlightWord(highlightedWordIndex, "incorrect");
+  showSpokenText(recognizedText); // Display user's spoken text near incorrect word
+}
+
+// Check if poem recitation is complete
+if (highlightedWordIndex === words.length) {
+  stopRecording();
+  analyzeResult();
+}
+}
+
+// Function to highlight a word
+function highlightWord(index, className) {
+  const wordsElement = document.getElementById("poem").querySelectorAll("span");
+  wordsElement[index].classList.add(className);
+}
+
+// Function to prompt next words
+function promptNextWords() {
+  const words = poemText.split(" ");
+  const nextThreeWords = words.slice(highlightedWordIndex, highlightedWordIndex + 3).join(" ");
+  speakMessage(nextThreeWords);
+}
+
+// Function to show missed stanza alert
+function showMissedStanzaAlert() {
+  const message = "You missed a stanza! Think: " + poemText.split(" ").slice(highlightedWordIndex).join(" ");
+  showAnalysisMessage(message);
+}
+
+// Function to play a message using SpeechSynthesis
+function speakMessage(message) {
+  const utterance = new SpeechSynthesisUtterance();
+  utterance.text = message;
+  if (document.getElementById("mute-audio").checked) {
+    utterance.volume = 0;
+  }
+  window.speechSynthesis.speak(utterance);
+}
+
+// Function to analyze recitation result
+function analyzeResult() {
+  const words = poemText.split(" ");
+  const correctWords = document.querySelectorAll("#poem span.correct").length;
+  const accuracy = Math.round((correctWords / words.length) * 100);
+
+  const mispronouncedWords = document.querySelectorAll("#poem span.incorrect");
+  const missedStanzas = poemText.split(/\n/).length - (highlightedWordIndex / words.length);
+
+  showAnalysisMessage(`Recitation completed! Accuracy: ${accuracy}%`);
+  showMispronouncedWords(mispronouncedWords);
+  showMissedStanzas(missedStanzas);
+  provideDetailedFeedback(mispronouncedWords);
+}
+
+// Show analysis message in #analysis section
+function showAnalysisMessage(message) {
+  const completionMessage = document.getElementById("completion-message");
+  completionMessage.textContent = message;
+}
+
+// Show list of mispronounced words in #analysis section
+function showMispronouncedWords(words) {
+  const mispronouncedWordsElement = document.getElementById("mispronounced-words");
+  mispronouncedWordsElement.textContent = "Mispronounced words:";
+  const list = document.createElement("ul");
+  for (const word of words) {
+    const listItem = document.createElement("li");
+    listItem.textContent = word.textContent;
+    list.appendChild(listItem);
+  }
+  mispronouncedWordsElement.appendChild(list);
+}
+
+// Show missed stanzas message in #analysis section
+function showMissedStanzas(count) {
+  const missedStanzasElement = document.getElementById("missed-stanzas");
+  missedStanzasElement.textContent = `Missed ${count} stanza(s)`;
+}
+
+function provideDetailedFeedback(words) {
+  const pronunciationTipsElement = document.getElementById("pronunciation-tips");
+  const rhythmSuggestionsElement = document.getElementById("rhythm-suggestions");
+
+  pronunciationTipsElement.textContent = "";
+  rhythmSuggestionsElement.textContent = "";
+
+  for (const word of words) {
+    const correctPronunciation = poemText.split(" ")[word.dataset.index];
+    if (soundsLikeApi.getPronunciationDifferences(word.textContent, correctPronunciation)) {
+      const differences = soundsLikeApi.getPronunciationDifferences(word.textContent, correctPronunciation);
+      pronunciationTipsElement.innerHTML += `
+        <p>Word: ${word.textContent} (mispronounced)</p>
+        <ul>
+          <li>Possible issues: ${differences.join(", ")}</li>
+          <li>Tips: ${soundsLikeApi.getPronunciationTips(correctPronunciation)}</li>
+        </ul>
+      `;
+    } else {
+      // Check for rhythm issues (e.g., missed pause, rushed line)
+      const timingAnalysis = analyzeWordTiming(word, highlightedWordIndex);
+      if (timingAnalysis) {
+        rhythmSuggestionsElement.innerHTML += `
+          <p>Word: ${word.textContent} (timing issue)</p>
+          <li>${timingAnalysis}</li>
+        `;
+      }
+    }
+  }
+}
+
+// analyzeWordTiming function analyzes the spoken word's timing relative to the expected rhythm
+function analyzeWordTiming(word, index) {
+  // Implement logic to compare spoken word duration and silence before/after with expected rhythm pattern
+  // ... 
+  // Based on analysis, return suggestions like "Hold this word a bit longer", "Pause slightly before this word" etc.
+  return null; // replace with actual timing analysis and suggestions
+}
+
+</script>
+</body>
+</html>
